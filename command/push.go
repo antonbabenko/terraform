@@ -10,6 +10,8 @@ import (
 
 	"github.com/hashicorp/atlas-go/archive"
 	"github.com/hashicorp/atlas-go/v1"
+	"github.com/hashicorp/terraform/backend"
+	"github.com/hashicorp/terraform/config"
 	"github.com/hashicorp/terraform/terraform"
 )
 
@@ -27,7 +29,10 @@ func (c *PushCommand) Run(args []string) int {
 	var archiveVCS, moduleUpload bool
 	var name string
 	var overwrite []string
-	args = c.Meta.process(args, true)
+	args, err := c.Meta.process(args, true)
+	if err != nil {
+		return 1
+	}
 	cmdFlags := c.Meta.flagSet("push")
 	cmdFlags.StringVar(&atlasAddress, "atlas-address", "", "")
 	cmdFlags.StringVar(&c.Meta.statePath, "state", DefaultStateFilename, "path")
@@ -49,8 +54,8 @@ func (c *PushCommand) Run(args []string) int {
 
 	// This is a map of variables specifically from the CLI that we want to overwrite.
 	// We need this because there is a chance that the user is trying to modify
-	// a variable we don't see in our context, but which exists in this atlas
-	// environment.
+	// a variable we don't see in our context, but which exists in this Terraform
+	// Enterprise workspace.
 	cliVars := make(map[string]string)
 	for k, v := range c.variables {
 		if _, ok := overwriteMap[k]; ok {
@@ -63,56 +68,81 @@ func (c *PushCommand) Run(args []string) int {
 		}
 	}
 
-	// The pwd is used for the configuration path if one is not given
-	pwd, err := os.Getwd()
-	if err != nil {
-		c.Ui.Error(fmt.Sprintf("Error getting pwd: %s", err))
-		return 1
-	}
-
 	// Get the path to the configuration depending on the args.
-	var configPath string
-	args = cmdFlags.Args()
-	if len(args) > 1 {
-		c.Ui.Error("The apply command expects at most one argument.")
-		cmdFlags.Usage()
-		return 1
-	} else if len(args) == 1 {
-		configPath = args[0]
-	} else {
-		configPath = pwd
-	}
-
-	// Verify the state is remote, we can't push without a remote state
-	s, err := c.State()
-	if err != nil {
-		c.Ui.Error(fmt.Sprintf("Failed to read state: %s", err))
-		return 1
-	}
-	if !s.State().IsRemote() {
-		c.Ui.Error(
-			"Remote state is not enabled. For Atlas to run Terraform\n" +
-				"for you, remote state must be used and configured. Remote\n" +
-				"state via any backend is accepted, not just Atlas. To\n" +
-				"configure remote state, use the `terraform remote config`\n" +
-				"command.")
-		return 1
-	}
-
-	// Build the context based on the arguments given
-	ctx, planned, err := c.Context(contextOpts{
-		Path:      configPath,
-		StatePath: c.Meta.statePath,
-	})
-
+	configPath, err := ModulePath(cmdFlags.Args())
 	if err != nil {
 		c.Ui.Error(err.Error())
 		return 1
 	}
-	if planned {
+
+	// Check if the path is a plan
+	plan, err := c.Plan(configPath)
+	if err != nil {
+		c.Ui.Error(err.Error())
+		return 1
+	}
+	if plan != nil {
 		c.Ui.Error(
 			"A plan file cannot be given as the path to the configuration.\n" +
 				"A path to a module (directory with configuration) must be given.")
+		return 1
+	}
+
+	// Load the module
+	mod, err := c.Module(configPath)
+	if err != nil {
+		c.Ui.Error(fmt.Sprintf("Failed to load root config module: %s", err))
+		return 1
+	}
+	if mod == nil {
+		c.Ui.Error(fmt.Sprintf(
+			"No configuration files found in the directory: %s\n\n"+
+				"This command requires configuration to run.",
+			configPath))
+		return 1
+	}
+
+	var conf *config.Config
+	if mod != nil {
+		conf = mod.Config()
+	}
+
+	// Load the backend
+	b, err := c.Backend(&BackendOpts{
+		Config: conf,
+	})
+	if err != nil {
+		c.Ui.Error(fmt.Sprintf("Failed to load backend: %s", err))
+		return 1
+	}
+
+	// We require a non-local backend
+	if c.IsLocalBackend(b) {
+		c.Ui.Error(
+			"A remote backend is not enabled. For Atlas to run Terraform\n" +
+				"for you, remote state must be used and configured. Remote \n" +
+				"state via any backend is accepted, not just Atlas. To configure\n" +
+				"a backend, please see the documentation at the URL below:\n\n" +
+				"https://www.terraform.io/docs/state/remote.html")
+		return 1
+	}
+
+	// We require a local backend
+	local, ok := b.(backend.Local)
+	if !ok {
+		c.Ui.Error(ErrUnsupportedLocalOp)
+		return 1
+	}
+
+	// Build the operation
+	opReq := c.Operation()
+	opReq.Module = mod
+	opReq.Plan = plan
+
+	// Get the context
+	ctx, _, err := local.Context(opReq)
+	if err != nil {
+		c.Ui.Error(err.Error())
 		return 1
 	}
 
@@ -351,8 +381,8 @@ Options:
                        flag can be set multiple times.
 
   -var-file=foo        Set variables in the Terraform configuration from
-                       a file. If "terraform.tfvars" is present, it will be
-                       automatically loaded if this flag is not specified.
+                       a file. If "terraform.tfvars" or any ".auto.tfvars"
+                       files are present, they will be automatically loaded.
 
   -vcs=true            If true (default), push will upload only files
                        committed to your VCS, if detected.

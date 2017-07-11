@@ -3,7 +3,6 @@ package command
 import (
 	"flag"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/hashicorp/terraform/config/module"
@@ -18,7 +17,10 @@ type GetCommand struct {
 func (c *GetCommand) Run(args []string) int {
 	var update bool
 
-	args = c.Meta.process(args, false)
+	args, err := c.Meta.process(args, false)
+	if err != nil {
+		return 1
+	}
 
 	cmdFlags := flag.NewFlagSet("get", flag.ContinueOnError)
 	cmdFlags.BoolVar(&update, "update", false, "update")
@@ -27,20 +29,10 @@ func (c *GetCommand) Run(args []string) int {
 		return 1
 	}
 
-	var path string
-	args = cmdFlags.Args()
-	if len(args) > 1 {
-		c.Ui.Error("The get command expects one argument.\n")
-		cmdFlags.Usage()
+	path, err := ModulePath(cmdFlags.Args())
+	if err != nil {
+		c.Ui.Error(err.Error())
 		return 1
-	} else if len(args) == 1 {
-		path = args[0]
-	} else {
-		var err error
-		path, err = os.Getwd()
-		if err != nil {
-			c.Ui.Error(fmt.Sprintf("Error getting pwd: %s", err))
-		}
 	}
 
 	mode := module.GetModeGet
@@ -48,12 +40,8 @@ func (c *GetCommand) Run(args []string) int {
 		mode = module.GetModeUpdate
 	}
 
-	_, _, err := c.Context(contextOpts{
-		Path:    path,
-		GetMode: mode,
-	})
-	if err != nil {
-		c.Ui.Error(fmt.Sprintf("Error loading Terraform: %s", err))
+	if err := getModules(&c.Meta, path, mode); err != nil {
+		c.Ui.Error(err.Error())
 		return 1
 	}
 
@@ -85,4 +73,18 @@ Options:
 
 func (c *GetCommand) Synopsis() string {
 	return "Download and install modules for the configuration"
+}
+
+func getModules(m *Meta, path string, mode module.GetMode) error {
+	mod, err := module.NewTreeModule("", path)
+	if err != nil {
+		return fmt.Errorf("Error loading configuration: %s", err)
+	}
+
+	err = mod.Load(m.moduleStorage(m.DataDir()), mode)
+	if err != nil {
+		return fmt.Errorf("Error loading modules: %s", err)
+	}
+
+	return nil
 }

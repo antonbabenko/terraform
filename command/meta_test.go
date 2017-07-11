@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/hashicorp/terraform/backend"
 	"github.com/hashicorp/terraform/terraform"
 )
 
@@ -20,7 +21,10 @@ func TestMetaColorize(t *testing.T) {
 	m.Color = true
 	args = []string{"foo", "bar"}
 	args2 = []string{"foo", "bar"}
-	args = m.process(args, false)
+	args, err := m.process(args, false)
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
 	if !reflect.DeepEqual(args, args2) {
 		t.Fatalf("bad: %#v", args)
 	}
@@ -32,7 +36,10 @@ func TestMetaColorize(t *testing.T) {
 	m = new(Meta)
 	args = []string{"foo", "bar"}
 	args2 = []string{"foo", "bar"}
-	args = m.process(args, false)
+	args, err = m.process(args, false)
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
 	if !reflect.DeepEqual(args, args2) {
 		t.Fatalf("bad: %#v", args)
 	}
@@ -45,7 +52,10 @@ func TestMetaColorize(t *testing.T) {
 	m.Color = true
 	args = []string{"foo", "-no-color", "bar"}
 	args2 = []string{"foo", "bar"}
-	args = m.process(args, false)
+	args, err = m.process(args, false)
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
 	if !reflect.DeepEqual(args, args2) {
 		t.Fatalf("bad: %#v", args)
 	}
@@ -128,20 +138,12 @@ func TestMetaInputMode_defaultVars(t *testing.T) {
 
 	// Create a temporary directory for our cwd
 	d := tempDir(t)
-	if err := os.MkdirAll(d, 0755); err != nil {
-		t.Fatalf("err: %s", err)
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("err: %s", err)
-	}
-	if err := os.Chdir(d); err != nil {
-		t.Fatalf("err: %s", err)
-	}
-	defer os.Chdir(cwd)
+	os.MkdirAll(d, 0755)
+	defer os.RemoveAll(d)
+	defer testChdir(t, d)()
 
 	// Create the default vars file
-	err = ioutil.WriteFile(
+	err := ioutil.WriteFile(
 		filepath.Join(d, DefaultVarsFilename),
 		[]byte(""),
 		0644)
@@ -151,7 +153,10 @@ func TestMetaInputMode_defaultVars(t *testing.T) {
 
 	m := new(Meta)
 	args := []string{}
-	args = m.process(args, true)
+	args, err = m.process(args, false)
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
 
 	fs := m.flagSet("foo")
 	if err := fs.Parse(args); err != nil {
@@ -175,7 +180,11 @@ func TestMetaInputMode_vars(t *testing.T) {
 		t.Fatalf("err: %s", err)
 	}
 
-	if m.InputMode()&terraform.InputModeVar != 0 {
+	if m.InputMode()&terraform.InputModeVar == 0 {
+		t.Fatalf("bad: %#v", m.InputMode())
+	}
+
+	if m.InputMode()&terraform.InputModeVarUnset == 0 {
 		t.Fatalf("bad: %#v", m.InputMode())
 	}
 }
@@ -266,5 +275,115 @@ func TestMeta_addModuleDepthFlag(t *testing.T) {
 		if moduleDepth != tc.Expected {
 			t.Fatalf("%s: expected: %#v, got: %#v", tn, tc.Expected, moduleDepth)
 		}
+	}
+}
+
+func TestMeta_Env(t *testing.T) {
+	td := tempDir(t)
+	os.MkdirAll(td, 0755)
+	defer os.RemoveAll(td)
+	defer testChdir(t, td)()
+
+	m := new(Meta)
+
+	env := m.Workspace()
+
+	if env != backend.DefaultStateName {
+		t.Fatalf("expected env %q, got env %q", backend.DefaultStateName, env)
+	}
+
+	testEnv := "test_env"
+	if err := m.SetWorkspace(testEnv); err != nil {
+		t.Fatal("error setting env:", err)
+	}
+
+	env = m.Workspace()
+	if env != testEnv {
+		t.Fatalf("expected env %q, got env %q", testEnv, env)
+	}
+
+	if err := m.SetWorkspace(backend.DefaultStateName); err != nil {
+		t.Fatal("error setting env:", err)
+	}
+
+	env = m.Workspace()
+	if env != backend.DefaultStateName {
+		t.Fatalf("expected env %q, got env %q", backend.DefaultStateName, env)
+	}
+}
+
+func TestMeta_process(t *testing.T) {
+	test = false
+	defer func() { test = true }()
+
+	// Create a temporary directory for our cwd
+	d := tempDir(t)
+	os.MkdirAll(d, 0755)
+	defer os.RemoveAll(d)
+	defer testChdir(t, d)()
+
+	// Create two vars files
+	defaultVarsfile := "terraform.tfvars"
+	err := ioutil.WriteFile(
+		filepath.Join(d, defaultVarsfile),
+		[]byte(""),
+		0644)
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+	fileFirstAlphabetical := "a-file.auto.tfvars"
+	err = ioutil.WriteFile(
+		filepath.Join(d, fileFirstAlphabetical),
+		[]byte(""),
+		0644)
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+	fileLastAlphabetical := "z-file.auto.tfvars"
+	err = ioutil.WriteFile(
+		filepath.Join(d, fileLastAlphabetical),
+		[]byte(""),
+		0644)
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+	// Regular tfvars files will not be autoloaded
+	fileIgnored := "ignored.tfvars"
+	err = ioutil.WriteFile(
+		filepath.Join(d, fileIgnored),
+		[]byte(""),
+		0644)
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+
+	m := new(Meta)
+	args := []string{}
+	args, err = m.process(args, true)
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+
+	if len(args) != 6 {
+		t.Fatalf("expected 6 args, got %v", args)
+	}
+
+	if args[0] != "-var-file-default" {
+		t.Fatalf("expected %q, got %q", "-var-file-default", args[0])
+	}
+	if args[1] != defaultVarsfile {
+		t.Fatalf("expected %q, got %q", defaultVarsfile, args[1])
+	}
+	if args[2] != "-var-file-default" {
+		t.Fatalf("expected %q, got %q", "-var-file-default", args[2])
+	}
+	if args[3] != fileFirstAlphabetical {
+		t.Fatalf("expected %q, got %q", fileFirstAlphabetical, args[3])
+	}
+	if args[4] != "-var-file-default" {
+		t.Fatalf("expected %q, got %q", "-var-file-default", args[4])
+	}
+	if args[5] != fileLastAlphabetical {
+		t.Fatalf("expected %q, got %q", fileLastAlphabetical, args[5])
 	}
 }

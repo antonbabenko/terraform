@@ -12,10 +12,14 @@ import (
 // within a state file.
 type StateListCommand struct {
 	Meta
+	StateMeta
 }
 
 func (c *StateListCommand) Run(args []string) int {
-	args = c.Meta.process(args, true)
+	args, err := c.Meta.process(args, true)
+	if err != nil {
+		return 1
+	}
 
 	cmdFlags := c.Meta.flagSet("state list")
 	cmdFlags.StringVar(&c.Meta.statePath, "state", DefaultStateFilename, "path")
@@ -24,10 +28,24 @@ func (c *StateListCommand) Run(args []string) int {
 	}
 	args = cmdFlags.Args()
 
-	state, err := c.State()
+	// Load the backend
+	b, err := c.Backend(nil)
 	if err != nil {
-		c.Ui.Error(fmt.Sprintf(errStateLoadingState, err))
-		return cli.RunResultHelp
+		c.Ui.Error(fmt.Sprintf("Failed to load backend: %s", err))
+		return 1
+	}
+
+	env := c.Workspace()
+	// Get the state
+	state, err := b.State(env)
+	if err != nil {
+		c.Ui.Error(fmt.Sprintf("Failed to load state: %s", err))
+		return 1
+	}
+
+	if err := state.RefreshState(); err != nil {
+		c.Ui.Error(fmt.Sprintf("Failed to load state: %s", err))
+		return 1
 	}
 
 	stateReal := state.State()

@@ -10,11 +10,14 @@ import (
 )
 
 func TestGraph(t *testing.T) {
+	tmp, cwd := testCwd(t)
+	defer testFixCwd(t, tmp, cwd)
+
 	ui := new(cli.MockUi)
 	c := &GraphCommand{
 		Meta: Meta{
-			ContextOpts: testCtxConfig(testProvider()),
-			Ui:          ui,
+			testingOverrides: metaOverridesForProvider(testProvider()),
+			Ui:               ui,
 		},
 	}
 
@@ -35,8 +38,8 @@ func TestGraph_multipleArgs(t *testing.T) {
 	ui := new(cli.MockUi)
 	c := &GraphCommand{
 		Meta: Meta{
-			ContextOpts: testCtxConfig(testProvider()),
-			Ui:          ui,
+			testingOverrides: metaOverridesForProvider(testProvider()),
+			Ui:               ui,
 		},
 	}
 
@@ -62,8 +65,8 @@ func TestGraph_noArgs(t *testing.T) {
 	ui := new(cli.MockUi)
 	c := &GraphCommand{
 		Meta: Meta{
-			ContextOpts: testCtxConfig(testProvider()),
-			Ui:          ui,
+			testingOverrides: metaOverridesForProvider(testProvider()),
+			Ui:               ui,
 		},
 	}
 
@@ -79,15 +82,31 @@ func TestGraph_noArgs(t *testing.T) {
 }
 
 func TestGraph_plan(t *testing.T) {
+	tmp, cwd := testCwd(t)
+	defer testFixCwd(t, tmp, cwd)
+
 	planPath := testPlanFile(t, &terraform.Plan{
+		Diff: &terraform.Diff{
+			Modules: []*terraform.ModuleDiff{
+				&terraform.ModuleDiff{
+					Path: []string{"root"},
+					Resources: map[string]*terraform.InstanceDiff{
+						"test_instance.bar": &terraform.InstanceDiff{
+							Destroy: true,
+						},
+					},
+				},
+			},
+		},
+
 		Module: testModule(t, "graph"),
 	})
 
 	ui := new(cli.MockUi)
 	c := &GraphCommand{
 		Meta: Meta{
-			ContextOpts: testCtxConfig(testProvider()),
-			Ui:          ui,
+			testingOverrides: metaOverridesForProvider(testProvider()),
+			Ui:               ui,
 		},
 	}
 

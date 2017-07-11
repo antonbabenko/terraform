@@ -7,29 +7,29 @@ func TestMakeProvisionerMap(t *testing.T) {
 		{
 			Package:    "file",
 			PluginName: "file",
-			TypeName:   "ResourceProvisioner",
+			TypeName:   "Provisioner",
 			Path:       "builtin/provisioners/file",
-			ImportName: "fileresourceprovisioner",
+			ImportName: "fileprovisioner",
 		},
 		{
 			Package:    "localexec",
 			PluginName: "local-exec",
-			TypeName:   "ResourceProvisioner",
+			TypeName:   "Provisioner",
 			Path:       "builtin/provisioners/local-exec",
-			ImportName: "localexecresourceprovisioner",
+			ImportName: "localexecprovisioner",
 		},
 		{
 			Package:    "remoteexec",
 			PluginName: "remote-exec",
-			TypeName:   "ResourceProvisioner",
+			TypeName:   "Provisioner",
 			Path:       "builtin/provisioners/remote-exec",
-			ImportName: "remoteexecresourceprovisioner",
+			ImportName: "remoteexecprovisioner",
 		},
 	})
 
-	expected := `	"file": func() terraform.ResourceProvisioner { return new(fileresourceprovisioner.ResourceProvisioner) },
-	"local-exec": func() terraform.ResourceProvisioner { return new(localexecresourceprovisioner.ResourceProvisioner) },
-	"remote-exec": func() terraform.ResourceProvisioner { return new(remoteexecresourceprovisioner.ResourceProvisioner) },
+	expected := `	"file":   fileprovisioner.Provisioner,
+	"local-exec":   localexecprovisioner.Provisioner,
+	"remote-exec":   remoteexecprovisioner.Provisioner,
 `
 
 	if p != expected {
@@ -62,36 +62,33 @@ func contains(plugins []plugin, name string) bool {
 	return false
 }
 
-func TestDiscoverTypesProviders(t *testing.T) {
-	plugins, err := discoverTypesInPath("../builtin/providers", "terraform.ResourceProvider", "Provider")
-	if err != nil {
-		t.Fatalf(err.Error())
-	}
-	// We're just going to spot-check, not do this exhaustively
-	if !contains(plugins, "aws") {
-		t.Errorf("Expected to find aws provider")
-	}
-	if !contains(plugins, "docker") {
-		t.Errorf("Expected to find docker provider")
-	}
-	if !contains(plugins, "dnsimple") {
-		t.Errorf("Expected to find dnsimple provider")
-	}
-	if !contains(plugins, "triton") {
-		t.Errorf("Expected to find triton provider")
-	}
-	if contains(plugins, "file") {
-		t.Errorf("Found unexpected provider file")
-	}
-}
+//func TestDiscoverTypesProviders(t *testing.T) {
+//    plugins, err := discoverTypesInPath("../builtin/providers", "terraform.ResourceProvider", "Provider")
+//    if err != nil {
+//        t.Fatalf(err.Error())
+//    }
+//    // We're just going to spot-check, not do this exhaustively
+//    if !contains(plugins, "aws") {
+//        t.Errorf("Expected to find aws provider")
+//    }
+//    if !contains(plugins, "docker") {
+//        t.Errorf("Expected to find docker provider")
+//    }
+//    if !contains(plugins, "dnsimple") {
+//        t.Errorf("Expected to find dnsimple provider")
+//    }
+//    if !contains(plugins, "triton") {
+//        t.Errorf("Expected to find triton provider")
+//    }
+//    if contains(plugins, "file") {
+//        t.Errorf("Found unexpected provider file")
+//    }
+//}
 
 func TestDiscoverTypesProvisioners(t *testing.T) {
-	plugins, err := discoverTypesInPath("../builtin/provisioners", "ResourceProvisioner", "")
+	plugins, err := discoverTypesInPath("../builtin/provisioners", "terraform.ResourceProvisioner", "Provisioner")
 	if err != nil {
 		t.Fatalf(err.Error())
-	}
-	if !contains(plugins, "chef") {
-		t.Errorf("Expected to find chef provisioner")
 	}
 	if !contains(plugins, "remote-exec") {
 		t.Errorf("Expected to find remote-exec provisioner")

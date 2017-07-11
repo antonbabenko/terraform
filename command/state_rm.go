@@ -14,21 +14,32 @@ type StateRmCommand struct {
 }
 
 func (c *StateRmCommand) Run(args []string) int {
-	args = c.Meta.process(args, true)
+	args, err := c.Meta.process(args, true)
+	if err != nil {
+		return 1
+	}
 
-	var backupPath string
 	cmdFlags := c.Meta.flagSet("state show")
-	cmdFlags.StringVar(&backupPath, "backup", "", "backup")
+	cmdFlags.StringVar(&c.Meta.backupPath, "backup", "-", "backup")
 	cmdFlags.StringVar(&c.Meta.statePath, "state", DefaultStateFilename, "path")
 	if err := cmdFlags.Parse(args); err != nil {
 		return cli.RunResultHelp
 	}
 	args = cmdFlags.Args()
 
+	if len(args) < 1 {
+		c.Ui.Error("At least one resource address is required.")
+		return 1
+	}
+
 	state, err := c.StateMeta.State(&c.Meta)
 	if err != nil {
 		c.Ui.Error(fmt.Sprintf(errStateLoadingState, err))
 		return cli.RunResultHelp
+	}
+	if err := state.RefreshState(); err != nil {
+		c.Ui.Error(fmt.Sprintf("Failed to load state: %s", err))
+		return 1
 	}
 
 	stateReal := state.State()

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/hashicorp/terraform/command/format"
 	"github.com/hashicorp/terraform/terraform"
 )
 
@@ -18,7 +19,10 @@ type ShowCommand struct {
 func (c *ShowCommand) Run(args []string) int {
 	var moduleDepth int
 
-	args = c.Meta.process(args, false)
+	args, err := c.Meta.process(args, false)
+	if err != nil {
+		return 1
+	}
 
 	cmdFlags := flag.NewFlagSet("show", flag.ContinueOnError)
 	c.addModuleDepthFlag(cmdFlags, &moduleDepth)
@@ -66,14 +70,28 @@ func (c *ShowCommand) Run(args []string) int {
 			}
 		}
 	} else {
-		stateOpts := c.StateOpts()
-		stateOpts.RemoteCacheOnly = true
-		result, err := State(stateOpts)
+		// Load the backend
+		b, err := c.Backend(nil)
 		if err != nil {
-			c.Ui.Error(fmt.Sprintf("Error reading state: %s", err))
+			c.Ui.Error(fmt.Sprintf("Failed to load backend: %s", err))
 			return 1
 		}
-		state = result.State.State()
+
+		env := c.Workspace()
+
+		// Get the state
+		stateStore, err := b.State(env)
+		if err != nil {
+			c.Ui.Error(fmt.Sprintf("Failed to load state: %s", err))
+			return 1
+		}
+
+		if err := stateStore.RefreshState(); err != nil {
+			c.Ui.Error(fmt.Sprintf("Failed to load state: %s", err))
+			return 1
+		}
+
+		state = stateStore.State()
 		if state == nil {
 			c.Ui.Output("No state.")
 			return 0
@@ -92,7 +110,7 @@ func (c *ShowCommand) Run(args []string) int {
 	}
 
 	if plan != nil {
-		c.Ui.Output(FormatPlan(&FormatPlanOpts{
+		c.Ui.Output(format.Plan(&format.PlanOpts{
 			Plan:        plan,
 			Color:       c.Colorize(),
 			ModuleDepth: moduleDepth,
@@ -100,7 +118,7 @@ func (c *ShowCommand) Run(args []string) int {
 		return 0
 	}
 
-	c.Ui.Output(FormatState(&FormatStateOpts{
+	c.Ui.Output(format.State(&format.StateOpts{
 		State:       state,
 		Color:       c.Colorize(),
 		ModuleDepth: moduleDepth,

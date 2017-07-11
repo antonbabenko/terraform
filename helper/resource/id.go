@@ -1,14 +1,17 @@
 package resource
 
 import (
-	"crypto/rand"
-	"encoding/base32"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
 const UniqueIdPrefix = `terraform-`
+
+// idCounter is a monotonic counter for generating ordered unique ids.
+var idMutex sync.Mutex
+var idCounter uint32
 
 // Helper for a resource to generate a unique identifier w/ default prefix
 func UniqueId() string {
@@ -17,37 +20,21 @@ func UniqueId() string {
 
 // Helper for a resource to generate a unique identifier w/ given prefix
 //
-// After the prefix, the ID consists of a timestamp and 12 random base32
-// characters.  The timestamp means that multiple IDs created with the same
-// prefix will sort in the order of their creation.
+// After the prefix, the ID consists of an incrementing 26 digit value (to match
+// previous timestamp output).  After the prefix, the ID consists of a timestamp
+// and an incrementing 8 hex digit value The timestamp means that multiple IDs
+// created with the same prefix will sort in the order of their creation, even
+// across multiple terraform executions, as long as the clock is not turned back
+// between calls, and as long as any given terraform execution generates fewer
+// than 4 billion IDs.
 func PrefixedUniqueId(prefix string) string {
-	// Be precise to the level nanoseconds, but remove the dot before the
-	// nanosecond. We assume that the randomCharacters call takes at least a
-	// nanosecond, so that multiple calls to this function from the same goroutine
-	// will have distinct ordered timestamps.
+	// Be precise to 4 digits of fractional seconds, but remove the dot before the
+	// fractional seconds.
 	timestamp := strings.Replace(
-		time.Now().UTC().Format("20060102150405.000000000"),
-		".",
-		"", 1)
-	// This uses 3 characters, so that the length of the unique ID is the same as
-	// it was before we added the timestamp prefix, which happened to be 23
-	// characters.
-	return fmt.Sprintf("%s%s%s", prefix, timestamp, randomCharacters(3))
-}
+		time.Now().UTC().Format("20060102150405.0000"), ".", "", 1)
 
-func randomCharacters(n int) string {
-	// Base32 has 5 bits of information per character.
-	b := randomBytes(n * 8 / 5)
-	chars := strings.ToLower(
-		strings.Replace(
-			base32.StdEncoding.EncodeToString(b),
-			"=", "", -1))
-	// Trim extra characters.
-	return chars[:n]
-}
-
-func randomBytes(n int) []byte {
-	b := make([]byte, n)
-	rand.Read(b)
-	return b
+	idMutex.Lock()
+	defer idMutex.Unlock()
+	idCounter++
+	return fmt.Sprintf("%s%s%08x", prefix, timestamp, idCounter)
 }

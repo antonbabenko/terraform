@@ -30,13 +30,22 @@ func init() {
 	}
 
 	meta := command.Meta{
-		Color:       true,
-		ContextOpts: &ContextOpts,
-		Ui:          Ui,
+		Color:            true,
+		GlobalPluginDirs: globalPluginDirs(),
+		PluginOverrides:  &PluginOverrides,
+		Ui:               Ui,
 	}
 
+	// The command list is included in the terraform -help
+	// output, which is in turn included in the docs at
+	// website/source/docs/commands/index.html.markdown; if you
+	// add, remove or reclassify commands then consider updating
+	// that to match.
+
 	PlumbingCommands = map[string]struct{}{
-		"state": struct{}{}, // includes all subcommands
+		"state":        struct{}{}, // includes all subcommands
+		"debug":        struct{}{}, // includes all subcommands
+		"force-unlock": struct{}{},
 	}
 
 	Commands = map[string]cli.CommandFactory{
@@ -47,11 +56,53 @@ func init() {
 			}, nil
 		},
 
+		"console": func() (cli.Command, error) {
+			return &command.ConsoleCommand{
+				Meta:       meta,
+				ShutdownCh: makeShutdownCh(),
+			}, nil
+		},
+
 		"destroy": func() (cli.Command, error) {
 			return &command.ApplyCommand{
 				Meta:       meta,
 				Destroy:    true,
 				ShutdownCh: makeShutdownCh(),
+			}, nil
+		},
+
+		"env": func() (cli.Command, error) {
+			return &command.WorkspaceCommand{
+				Meta:       meta,
+				LegacyName: true,
+			}, nil
+		},
+
+		"env list": func() (cli.Command, error) {
+			return &command.WorkspaceListCommand{
+				Meta:       meta,
+				LegacyName: true,
+			}, nil
+		},
+
+		"env select": func() (cli.Command, error) {
+			return &command.WorkspaceSelectCommand{
+				Meta:       meta,
+				LegacyName: true,
+			}, nil
+		},
+
+		"env new": func() (cli.Command, error) {
+			return &command.WorkspaceNewCommand{
+				Meta:       meta,
+				LegacyName: true,
+			}, nil
+		},
+
+		"env delete": func() (cli.Command, error) {
+			return &command.WorkspaceDeleteCommand{
+				Meta:       meta,
+				LegacyName: true,
 			}, nil
 		},
 
@@ -103,6 +154,12 @@ func init() {
 			}, nil
 		},
 
+		"providers": func() (cli.Command, error) {
+			return &command.ProvidersCommand{
+				Meta: meta,
+			}, nil
+		},
+
 		"push": func() (cli.Command, error) {
 			return &command.PushCommand{
 				Meta: meta,
@@ -111,12 +168,6 @@ func init() {
 
 		"refresh": func() (cli.Command, error) {
 			return &command.RefreshCommand{
-				Meta: meta,
-			}, nil
-		},
-
-		"remote": func() (cli.Command, error) {
-			return &command.RemoteCommand{
 				Meta: meta,
 			}, nil
 		},
@@ -155,14 +206,66 @@ func init() {
 			}, nil
 		},
 
+		"workspace": func() (cli.Command, error) {
+			return &command.WorkspaceCommand{
+				Meta: meta,
+			}, nil
+		},
+
+		"workspace list": func() (cli.Command, error) {
+			return &command.WorkspaceListCommand{
+				Meta: meta,
+			}, nil
+		},
+
+		"workspace select": func() (cli.Command, error) {
+			return &command.WorkspaceSelectCommand{
+				Meta: meta,
+			}, nil
+		},
+
+		"workspace show": func() (cli.Command, error) {
+			return &command.WorkspaceShowCommand{
+				Meta: meta,
+			}, nil
+		},
+
+		"workspace new": func() (cli.Command, error) {
+			return &command.WorkspaceNewCommand{
+				Meta: meta,
+			}, nil
+		},
+
+		"workspace delete": func() (cli.Command, error) {
+			return &command.WorkspaceDeleteCommand{
+				Meta: meta,
+			}, nil
+		},
+
 		//-----------------------------------------------------------
 		// Plumbing
 		//-----------------------------------------------------------
 
-		"state": func() (cli.Command, error) {
-			return &command.StateCommand{
+		"debug": func() (cli.Command, error) {
+			return &command.DebugCommand{
 				Meta: meta,
 			}, nil
+		},
+
+		"debug json2dot": func() (cli.Command, error) {
+			return &command.DebugJSON2DotCommand{
+				Meta: meta,
+			}, nil
+		},
+
+		"force-unlock": func() (cli.Command, error) {
+			return &command.UnlockCommand{
+				Meta: meta,
+			}, nil
+		},
+
+		"state": func() (cli.Command, error) {
+			return &command.StateCommand{}, nil
 		},
 
 		"state list": func() (cli.Command, error) {
@@ -183,6 +286,18 @@ func init() {
 			}, nil
 		},
 
+		"state pull": func() (cli.Command, error) {
+			return &command.StatePullCommand{
+				Meta: meta,
+			}, nil
+		},
+
+		"state push": func() (cli.Command, error) {
+			return &command.StatePushCommand{
+				Meta: meta,
+			}, nil
+		},
+
 		"state show": func() (cli.Command, error) {
 			return &command.StateShowCommand{
 				Meta: meta,
@@ -197,7 +312,8 @@ func makeShutdownCh() <-chan struct{} {
 	resultCh := make(chan struct{})
 
 	signalCh := make(chan os.Signal, 4)
-	signal.Notify(signalCh, os.Interrupt)
+	signal.Notify(signalCh, ignoreSignals...)
+	signal.Notify(signalCh, forwardSignals...)
 	go func() {
 		for {
 			<-signalCh

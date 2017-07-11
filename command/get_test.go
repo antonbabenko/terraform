@@ -9,12 +9,15 @@ import (
 )
 
 func TestGet(t *testing.T) {
+	tmp, cwd := testCwd(t)
+	defer testFixCwd(t, tmp, cwd)
+
 	ui := new(cli.MockUi)
 	c := &GetCommand{
 		Meta: Meta{
-			ContextOpts: testCtxConfig(testProvider()),
-			Ui:          ui,
-			dataDir:     tempDir(t),
+			testingOverrides: metaOverridesForProvider(testProvider()),
+			Ui:               ui,
+			dataDir:          tempDir(t),
 		},
 	}
 
@@ -38,9 +41,9 @@ func TestGet_multipleArgs(t *testing.T) {
 	ui := new(cli.MockUi)
 	c := &GetCommand{
 		Meta: Meta{
-			ContextOpts: testCtxConfig(testProvider()),
-			Ui:          ui,
-			dataDir:     tempDir(t),
+			testingOverrides: metaOverridesForProvider(testProvider()),
+			Ui:               ui,
+			dataDir:          tempDir(t),
 		},
 	}
 
@@ -66,9 +69,9 @@ func TestGet_noArgs(t *testing.T) {
 	ui := new(cli.MockUi)
 	c := &GetCommand{
 		Meta: Meta{
-			ContextOpts: testCtxConfig(testProvider()),
-			Ui:          ui,
-			dataDir:     tempDir(t),
+			testingOverrides: metaOverridesForProvider(testProvider()),
+			Ui:               ui,
+			dataDir:          tempDir(t),
 		},
 	}
 
@@ -87,12 +90,15 @@ func TestGet_noArgs(t *testing.T) {
 }
 
 func TestGet_update(t *testing.T) {
+	tmp, cwd := testCwd(t)
+	defer testFixCwd(t, tmp, cwd)
+
 	ui := new(cli.MockUi)
 	c := &GetCommand{
 		Meta: Meta{
-			ContextOpts: testCtxConfig(testProvider()),
-			Ui:          ui,
-			dataDir:     tempDir(t),
+			testingOverrides: metaOverridesForProvider(testProvider()),
+			Ui:               ui,
+			dataDir:          tempDir(t),
 		},
 	}
 
